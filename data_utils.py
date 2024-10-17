@@ -7,48 +7,51 @@ from PIL import Image
 import torchvision.transforms as transforms
 
 class LipReadingDataset(Dataset):
-    def __init__(self, csv_file, root_dir, transform=None):
+    def __init__(self, csv_file, transform = None, data_type="train"):
         """
         Args:
             csv_file (str): Path to the csv file with annotations or frame metadata.
             root_dir (str): Directory with all the video frame folders.
             transform (callable, optional): Optional transform to be applied on a frame.
         """
-        self.frame_data = pd.read_csv(csv_file)
+        self.frame_data = pd.read_csv(csv_file, index_col=0)
+        self.frame_data = self.frame_data[self.frame_data['type'] == data_type]
         self.root_dir = root_dir
         self.transform = transform
-
     def __len__(self):
         return len(self.frame_data)
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
-
-        img_name = os.path.join(self.root_dir, self.frame_data.iloc[idx, 0])
-        image = Image.open(img_name).convert('RGB')
+        vid_folder = self.frame_data.iloc[idx]['out_dir']
+        frame_files = sorted(os.listdir(self.frame_data.iloc[idx]['out_dir'])) 
         
-        # Load additional information from CSV if available
-        label = self.frame_data.iloc[idx, 1]  # Assuming the second column is a label
+        frames = []
+        for frame_file in frame_files:
+            frame_path = os.path.join(vid_folder, frame_file)
+            image = Image.open(frame_path).convert('RGB')  # Ensure all images are RGB
+            
+            if self.transform:
+                image = self.transform(image)
+            
+            frames.append(image)
         
-        if self.transform:
-            image = self.transform(image)
-        
-        sample = {'image': image, 'label': label}
+        frames_tensor = torch.stack(frames)
+        word_tensor = torch.tensor(self.frame_data.iloc[idx]['word'])
 
-        return sample
 
-# Example transform
+        return frames_tensor, word_tensor
+
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),  # Resize images to 224x224
-    transforms.ToTensor(),  # Convert image to tensor
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalize
-])
-
+            transforms.Resize((128, 128)),
+            transforms.ToTensor()
+        ])
 # Instantiate the dataset
-csv_file = '/users/j/j/jjung2/scratch/data/subset_test.csv'
-root_dir = 'path/to/your/dataset'
-video_dataset = LipReadingDataset(csv_file=csv_file, root_dir=root_dir, transform=transform)
+
+
+csv_file = '/users/j/j/jjung2/scratch/Deep_Learning_Course/data/subset_test.csv'
+video_dataset = LipReadingDataset(csv_file=csv_file,transform=transform)
 
 # Create a dataloader
-dataloader = DataLoader(video_dataset, batch_size=32, shuffle=True, num_workers=4)
+dataloader = DataLoader(video_dataset, batch_size=128, shuffle=True, num_workers=16)
